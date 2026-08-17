@@ -20,14 +20,14 @@
 PhotoStyleCamera/
 ├── PhotoStyleCameraApp.swift        # 入口
 ├── Models/PhotoStyle.swift          # StyleVector + 预设风格
-├── Camera/CameraManager.swift       # 相机会话 + 预览帧 + 拍照
-├── Camera/MetalPreviewView.swift    # Metal 实时预览
+├── Camera/CameraManager.swift       # 相机会话 + 预览帧 + 拍照 + 权限 + 方向
+├── Camera/MetalPreviewView.swift    # Metal 实时预览（P3 色彩空间）
 ├── Segmentation/PersonSegmenter.swift  # Vision 人像分割
 ├── Rendering/StyleEngine.swift      # 分区域色调映射 + intensity 混合
-├── ViewModel/CameraViewModel.swift  # 协调层（帧 → 分割 → 渲染 → 预览）
+├── ViewModel/CameraViewModel.swift  # 协调层（帧 → 分割 → 渲染 → 预览 + 权限）
 ├── Views/ColorPaletteView.swift     # 二维调色盘交互
-├── Views/CameraView.swift           # 主界面
-└── Photo/PhotoStore.swift           # 可逆编辑持久化
+├── Views/CameraView.swift           # 主界面（含权限提示 + 前后切换）
+└── Photo/PhotoStore.swift           # 可逆编辑持久化 + 系统相册保存
 ```
 
 ## 如何在 Xcode 中运行
@@ -35,8 +35,9 @@ PhotoStyleCamera/
 1. 新建 iOS App 工程，Product Name 用 `PhotoStyleCamera`，Interface 选 **SwiftUI**，Language **Swift**。
 2. 删除模板自带的 `ContentView.swift`（或保留不用），把本目录所有 `.swift` 文件按目录结构拖入工程（勾选 Copy if needed）。
 3. 部署目标设为 **iOS 16.0**；在 Build Settings 里把 `SWIFT_VERSION` 设为 **5**（避免 Swift 6 严格并发报错）。
-4. 在 `Info.plist` 添加相机权限：
+4. 在 `Info.plist` 添加权限描述：
    - `NSCameraUsageDescription`（例如「用于拍摄并应用自定义摄影风格」）
+   - `NSPhotoLibraryAddUsageDescription`（例如「用于将渲染后的照片保存到相册」）
 5. 真机运行（相机功能模拟器不可用）。
 
 ## 关键设计说明
@@ -50,8 +51,16 @@ PhotoStyleCamera/
 ### 2. 可逆编辑
 拍照时保存「原图 JPEG + 风格参数 JSON」到 `Documents/Edits/`。之后可重新加载原图，用同一套 `StyleVector` 重渲染——这才是真正可逆，而非把滤镜烘死成成品。
 
-### 3. 画面方向不对怎么办？
-`CameraManager.previewOrientation` 是唯一需要调的方向开关（默认 `.right` 针对后置竖屏）。若实际画面/分割方向错，改这一个枚举值即可（`.left` / `.up` / `.down`）。
+同时将渲染后的成品自动保存到系统相册，方便在系统「照片」App 中查看和分享。
+
+### 3. 画面方向
+`CameraManager` 监听 `UIDevice.orientationDidChangeNotification`，根据设备方向 + 前后置动态计算 `previewOrientation`，不再硬编码。前置摄像头自动启用镜像。
+
+### 4. 相机权限
+启动时自动检查权限状态：
+- 未授权 → 弹出系统权限请求
+- 已拒绝 → 显示引导页面，可跳转系统设置
+- 已授权 → 直接启动相机
 
 ## 已知限制（与 Apple 版的硬差距）
 
@@ -63,6 +72,5 @@ PhotoStyleCamera/
 ## 进一步优化方向
 
 1. **肤色 mask 细化**：在 person mask 内再做一次肤色检测（YCbCr 肤色范围），让「只保护皮肤、衣服仍可调色」。
-2. **动态方向**：根据前后置切换 + 设备方向实时计算 `previewOrientation`。
-3. **性能**：改用 Metal compute shader 合并分割与调色到单 Pass，进一步降功耗。
-4. **缩略图实时预览**：在调色盘背景上实时渲染当前色调的小缩略图（当前为示意渐变）。
+2. **性能**：改用 Metal compute shader 合并分割与调色到单 Pass，进一步降功耗。
+3. **缩略图实时预览**：在调色盘背景上实时渲染当前色调的小缩略图（当前为示意渐变）。

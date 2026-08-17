@@ -8,7 +8,7 @@ final class MetalPreviewView: MTKView, MTKViewDelegate {
     private var commandQueue: MTLCommandQueue!
     private var pendingImage: CIImage?
 
-    private let renderQueue = DispatchQueue(label: "metal.preview")
+    private let renderLock = NSLock()
 
     override init(frame frameRect: CGRect, device: MTLDevice?) {
         super.init(frame: frameRect, device: device)
@@ -28,27 +28,37 @@ final class MetalPreviewView: MTKView, MTKViewDelegate {
         delegate = self
     }
 
-    /// 提交一帧，线程安全（可从处理队列调用）
+    /// 提交一帧，线程安全（可从处理队列调用）。
     func display(_ image: CIImage) {
-        renderQueue.async { [weak self] in
-            self?.pendingImage = image
-            DispatchQueue.main.async { self?.setNeedsDisplay() }
+        renderLock.lock()
+        pendingImage = image
+        renderLock.unlock()
+        DispatchQueue.main.async { [weak self] in
+            self?.setNeedsDisplay()
         }
     }
 
     func draw(in view: MTKView) {
         guard let drawable = view.currentDrawable,
-              let commandBuffer = commandQueue.makeCommandBuffer(),
-              let image = pendingImage else { return }
+              let commandBuffer = commandQueue.makeCommandBuffer() else { return }
+
+        renderLock.lock()
+        let image = pendingImage
+        renderLock.unlock()
+        guard let image else { return }
 
         let target = CGSize(width: drawable.texture.width, height: drawable.texture.height)
         let transformed = Self.transform(image: image, toFill: target)
+
+        // 使用 P3 色彩空间，充分利用 iPhone 13 Pro 广色域屏幕
+        let colorSpace = CGColorSpace(name: CGColorSpace.displayP3)
+            ?? CGColorSpaceCreateDeviceRGB()
 
         ciContext.render(transformed,
                          to: drawable.texture,
                          commandBuffer: commandBuffer,
                          bounds: transformed.extent,
-                         colorSpace: CGColorSpaceCreateDeviceRGB())
+                         colorSpace: colorSpace)
 
         commandBuffer.present(drawable)
         commandBuffer.commit()

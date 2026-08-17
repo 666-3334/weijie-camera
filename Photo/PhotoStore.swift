@@ -1,4 +1,5 @@
 import UIKit
+import Photos
 
 /// 「可逆」编辑的持久化：保存原图 + 风格参数(JSON)到 Documents。
 /// 之后可在 App 内重新加载原图，用同一套参数重新渲染（这才是真正的可逆，而非烘死成品）。
@@ -11,6 +12,8 @@ struct EditMeta: Codable {
 final class PhotoStore {
 
     static let shared = PhotoStore()
+
+    // MARK: - 可逆保存（App 内部）
 
     /// 保存一张照片：原图 + 参数元数据
     func save(originalData: Data, style: StyleVector) {
@@ -44,5 +47,27 @@ final class PhotoStore {
     private func editsDirectory() -> URL {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Edits", isDirectory: true)
+    }
+
+    // MARK: - 保存到系统相册
+
+    /// 将渲染后的成品 CGImage 写入系统相册。
+    func saveToPhotoLibrary(cgImage: CGImage) {
+        PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
+            guard status == .authorized || status == .limited else { return }
+            PHPhotoLibrary.shared().performChanges {
+                let request = PHAssetCreationRequest.forAsset()
+                request.addResource(with: .photo, data: self.jpegData(from: cgImage), options: nil)
+            } completionHandler: { success, error in
+                if let error {
+                    print("[PhotoStore] 保存到相册失败: \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+
+    private func jpegData(from cgImage: CGImage, quality: CGFloat = 0.92) -> Data? {
+        let uiImage = UIImage(cgImage: cgImage)
+        return uiImage.jpegData(compressionQuality: quality)
     }
 }

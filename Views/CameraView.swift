@@ -8,8 +8,12 @@ struct CameraView: View {
         ZStack(alignment: .bottom) {
             Color.black.ignoresSafeArea()
 
-            MetalPreviewRepresentable(vm: vm)
-                .ignoresSafeArea()
+            if vm.permissionDenied {
+                permissionDeniedView
+            } else {
+                MetalPreviewRepresentable(vm: vm)
+                    .ignoresSafeArea()
+            }
 
             VStack(spacing: 16) {
                 presetBar
@@ -20,19 +24,78 @@ struct CameraView: View {
                     intensitySlider
                 }
             }
-            .padding(.horizontal)
-            .padding(.bottom, 24)
-            .background(
-                LinearGradient(colors: [.clear, .black.opacity(0.6)],
-                               startPoint: .top, endPoint: .bottom)
-                    .ignoresSafeArea()
+            .padding(.horizontal, 20)
+            .padding(.top, 18)
+            .padding(.bottom, 22)
+            .liquidGlass(in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .strokeBorder(.white.opacity(0.2), lineWidth: 1)
             )
+            .padding(.horizontal, 12)
+            .padding(.bottom, 12)
+
+            // 切换摄像头按钮（右上角）
+            VStack {
+                HStack {
+                    Spacer()
+                    switchCameraButton
+                        .padding(.trailing, 16)
+                        .padding(.top, 56)
+                }
+                Spacer()
+            }
         }
         .onAppear { vm.start() }
         .onDisappear { vm.stop() }
     }
 
-    // 预设横向选择
+    // MARK: - 权限被拒提示
+
+    private var permissionDeniedView: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "camera.fill")
+                .font(.system(size: 48))
+                .foregroundColor(.white.opacity(0.6))
+            Text("需要相机权限")
+                .font(.title3)
+                .foregroundColor(.white)
+            Text("请在「设置 > 隐私与安全性 > 相机」中\n允许 PhotoStyleCamera 访问相机")
+                .font(.subheadline)
+                .foregroundColor(.white.opacity(0.7))
+                .multilineTextAlignment(.center)
+            Button {
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    UIApplication.shared.open(url)
+                }
+            } label: {
+                Text("前往设置")
+                    .font(.subheadline).fontWeight(.semibold)
+                    .foregroundColor(.black)
+                    .padding(.horizontal, 24).padding(.vertical, 10)
+                    .background(Capsule().fill(Color.white))
+            }
+        }
+        .padding()
+    }
+
+    // MARK: - 切换摄像头
+
+    private var switchCameraButton: some View {
+        Button {
+            vm.switchCamera()
+        } label: {
+            Image(systemName: "arrow.triangle.2.circlepath.camera")
+                .font(.system(size: 20))
+                .foregroundColor(.white)
+                .padding(10)
+                .liquidGlass(in: Circle())
+                .overlay(Circle().strokeBorder(.white.opacity(0.2), lineWidth: 1))
+        }
+    }
+
+    // MARK: - 预设横向选择
+
     private var presetBar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 12) {
@@ -44,11 +107,15 @@ struct CameraView: View {
                             .font(.footnote).fontWeight(.medium)
                             .foregroundColor(.white)
                             .padding(.horizontal, 14).padding(.vertical, 8)
-                            .background(
+                            .liquidGlass(in: Capsule())
+                            .overlay(
                                 Capsule().fill(
                                     vm.style == preset.vector
-                                        ? Color.white.opacity(0.35)
-                                        : Color.white.opacity(0.15))
+                                        ? Color.white.opacity(0.2)
+                                        : .clear)
+                            )
+                            .overlay(
+                                Capsule().strokeBorder(.white.opacity(0.2), lineWidth: 1)
                             )
                     }
                 }
@@ -56,6 +123,8 @@ struct CameraView: View {
             .padding(.horizontal)
         }
     }
+
+    // MARK: - 快门按钮
 
     private var shutterButton: some View {
         Button {
@@ -68,7 +137,8 @@ struct CameraView: View {
         }
     }
 
-    // 强度滑块
+    // MARK: - 强度滑块
+
     private var intensitySlider: some View {
         VStack(spacing: 6) {
             Text("强度")

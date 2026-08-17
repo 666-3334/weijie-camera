@@ -18,6 +18,7 @@ struct ColorPaletteView: View {
                     .frame(width: 24, height: 24)
                     .overlay(Circle().stroke(Color.black.opacity(0.35), lineWidth: 1.5))
                     .shadow(radius: 3)
+                    .liquidGlass(in: Circle())
                     .position(handlePosition(in: geo, size: size))
                     .gesture(
                         DragGesture(minimumDistance: 0)

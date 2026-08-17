@@ -2,6 +2,13 @@ import AVFoundation
 import CoreImage
 import CoreVideo
 import ImageIO
+import UIKit
+
+/// 相机位置
+enum CameraPosition {
+    case back
+    case front
+}
 
 /// 管理相机会话：输出预览帧 + 拍照。
 final class CameraManager: NSObject, ObservableObject {
@@ -12,15 +19,43 @@ final class CameraManager: NSObject, ObservableObject {
     var onPhotoCaptured: ((Data) -> Void)?
 
     @Published private(set) var isRunning = false
+    @Published private(set) var cameraPosition: CameraPosition = .back
 
-    /// 帧的 EXIF 方向。默认针对「后置 + 竖屏」。
-    /// 若实际设备上画面/分割方向不对，只需改这一个值（.right/.left/.up/.down）。
+    /// 帧的 EXIF 方向，根据设备方向 + 前后置动态计算。
     @Published private(set) var previewOrientation: CGImagePropertyOrientation = .right
 
     private let session = AVCaptureSession()
     private let videoOutput = AVCaptureVideoDataOutput()
     private let photoOutput = AVCapturePhotoOutput()
     private let queue = DispatchQueue(label: "camera.session", qos: .userInteractive)
+    private var rotationObserver: NSObjectProtocol?
+
+    deinit {
+        if let rotationObserver {
+            NotificationCenter.default.removeObserver(rotationObserver)
+        }
+    }
+
+    // MARK: - 权限
+
+    enum PermissionStatus {
+        case authorized
+        case denied
+        case notDetermined
+    }
+
+    static func permissionStatus() -> PermissionStatus {
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized: return .authorized
+        case .denied, .restricted: return .denied
+        case .notDetermined: return .notDetermined
+        @unknown default: return .notDetermined
+        }
+    }
+
+    func requestPermission(_ completion: @escaping (Bool) -> Void) {
+        AVCaptureDevice.requestAccess(for: .video, completionHandler: completion)
+    }
 
     // MARK: - 启动 / 停止
 
@@ -29,7 +64,11 @@ final class CameraManager: NSObject, ObservableObject {
             guard let self, !self.session.isRunning else { return }
             self.configure()
             self.session.startRunning()
-            DispatchQueue.main.async { self.isRunning = true }
+            DispatchQueue.main.async {
+                self.isRunning = true
+                self.startObservingRotation()
+                self.updatePreviewOrientation()
+            }
         }
     }
 
@@ -37,14 +76,25 @@ final class CameraManager: NSObject, ObservableObject {
         queue.async { [weak self] in
             guard let self, self.session.isRunning else { return }
             self.session.stopRunning()
+            self.stopObservingRotation()
             DispatchQueue.main.async { self.isRunning = false }
+        }
+    }
+
+    // MARK: - 前后摄像头切换
+
+    func switchCamera() {
+        queue.async { [weak self] in
+            guard let self else { return }
+            let newPosition: AVCaptureDevice.Position =
+                (self.cameraPosition == .back) ? .front : .back
+            self.replaceInput(position: newPosition)
         }
     }
 
     // MARK: - 配置
 
     private func configure() {
-        // 已配置过输入则不重复配置
         guard session.inputs.isEmpty else { return }
         if session.isRunning { session.stopRunning() }
 
@@ -74,6 +124,83 @@ final class CameraManager: NSObject, ObservableObject {
         if session.canAddOutput(photoOutput) { session.addOutput(photoOutput) }
 
         session.commitConfiguration()
+    }
+
+    /// 切换摄像头输入：移除旧输入、添加新输入。
+    private func replaceInput(position: AVCaptureDevice.Position) {
+        session.beginConfiguration()
+        session.inputs.forEach { session.removeInput($0) }
+
+        guard let device = AVCaptureDevice.default(.builtInWideAngleCamera,
+                                                   for: .video,
+                                                   position: position),
+              let input = try? AVCaptureDeviceInput(device: device),
+              session.canAddInput(input) else {
+            session.commitConfiguration()
+            return
+        }
+        session.addInput(input)
+        session.commitConfiguration()
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.cameraPosition = (position == .back) ? .back : .front
+            self.updatePreviewOrientation()
+        }
+    }
+
+    // MARK: - 方向处理
+
+    private func startObservingRotation() {
+        guard rotationObserver == nil else { return }
+        rotationObserver = NotificationCenter.default.addObserver(
+            forName: UIDevice.orientationDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.updatePreviewOrientation()
+        }
+    }
+
+    private func stopObservingRotation() {
+        if let rotationObserver {
+            NotificationCenter.default.removeObserver(rotationObserver)
+            self.rotationObserver = nil
+        }
+    }
+
+    /// 根据设备方向 + 前后置，计算预览方向并同步到视频连接。
+    private func updatePreviewOrientation() {
+        let deviceOrientation = UIDevice.current.orientation
+        guard deviceOrientation.isPortrait || deviceOrientation.isLandscape else { return }
+
+        let videoOrientation: AVCaptureVideoOrientation
+        switch deviceOrientation {
+        case .portrait:          videoOrientation = .portrait
+        case .portraitUpsideDown: videoOrientation = .portraitUpsideDown
+        case .landscapeLeft:     videoOrientation = .landscapeRight   // 设备左转 -> 画面右旋
+        case .landscapeRight:    videoOrientation = .landscapeLeft    // 设备右转 -> 画面左旋
+        default: return
+        }
+
+        let isFront = cameraPosition == .front
+        let connection = videoOutput.connection(with: .video)
+        connection?.videoOrientation = videoOrientation
+        connection?.isVideoMirrored = isFront
+
+        previewOrientation = Self.cgOrientation(videoOrientation: videoOrientation,
+                                                mirrored: isFront)
+    }
+
+    private static func cgOrientation(videoOrientation: AVCaptureVideoOrientation,
+                                      mirrored: Bool) -> CGImagePropertyOrientation {
+        switch videoOrientation {
+        case .portrait:           return mirrored ? .leftMirrored  : .right
+        case .portraitUpsideDown: return mirrored ? .rightMirrored : .left
+        case .landscapeRight:     return mirrored ? .downMirrored  : .up
+        case .landscapeLeft:      return mirrored ? .upMirrored    : .down
+        @unknown default:         return .right
+        }
     }
 
     // MARK: - 拍照

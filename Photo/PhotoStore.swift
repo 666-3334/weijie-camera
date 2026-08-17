@@ -56,8 +56,9 @@ final class PhotoStore {
         PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
             guard status == .authorized || status == .limited else { return }
             PHPhotoLibrary.shared().performChanges {
+                guard let data = self.jpegData(from: cgImage) else { return }
                 let request = PHAssetCreationRequest.forAsset()
-                request.addResource(with: .photo, data: self.jpegData(from: cgImage), options: nil)
+                request.addResource(with: .photo, data: data, options: nil)
             } completionHandler: { success, error in
                 if let error {
                     print("[PhotoStore] 保存到相册失败: \(error.localizedDescription)")

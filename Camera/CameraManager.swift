@@ -3,6 +3,7 @@ import CoreImage
 import CoreVideo
 import ImageIO
 import UIKit
+import Combine
 
 /// 相机位置
 enum CameraPosition {

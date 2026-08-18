@@ -48,7 +48,7 @@ final class MetalPreviewView: MTKView, MTKViewDelegate {
         guard let image else { return }
 
         let target = CGSize(width: drawable.texture.width, height: drawable.texture.height)
-        let transformed = Self.transform(image: image, toFill: target)
+        let transformed = Self.aspectFill(image: image, to: target)
 
         // 使用 P3 色彩空间，充分利用 iPhone 13 Pro 广色域屏幕
         let colorSpace = CGColorSpace(name: CGColorSpace.displayP3)
@@ -57,24 +57,30 @@ final class MetalPreviewView: MTKView, MTKViewDelegate {
         ciContext.render(transformed,
                          to: drawable.texture,
                          commandBuffer: commandBuffer,
-                         bounds: transformed.extent,
+                         bounds: CGRect(origin: .zero, size: target),
                          colorSpace: colorSpace)
 
         commandBuffer.present(drawable)
         commandBuffer.commit()
     }
 
-    /// Y 翻转 + aspect-fill 铺满 drawable（Core Image 原点在左下，需翻转）
-    private static func transform(image: CIImage, toFill target: CGSize) -> CIImage {
+    /// Y 翻转 + aspect-fill 铺满 + 居中裁剪到 target 尺寸（Core Image 原点在左下，需翻转）
+    private static func aspectFill(image: CIImage, to target: CGSize) -> CIImage {
         let src = image.extent
         let scale = max(target.width / src.width, target.height / src.height)
-        let dx = (target.width - src.width * scale) / 2
-        let dy = (target.height - src.height * scale) / 2
+        let scaledW = src.width * scale
+        let scaledH = src.height * scale
+        let dx = (scaledW - target.width) / 2
+        let dy = (scaledH - target.height) / 2
 
-        var t = CGAffineTransform(translationX: 0, y: src.height)
-            .scaledBy(x: 1, y: -1)            // 翻转 Y
-        t = t.scaledBy(x: scale, y: scale)     // 缩放铺满
-            .translatedBy(x: dx / scale, y: dy / scale) // 居中
-        return image.transformed(by: t)
+        // 1. 缩放 + Y 翻转令图像方向正确
+        let scaled = image
+            .transformed(by: CGAffineTransform(translationX: 0, y: src.height)
+                .scaledBy(x: 1, y: -1))
+            .transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+
+        // 2. 裁剪到 target 尺寸（居中）
+        let cropRect = CGRect(x: dx, y: dy, width: target.width, height: target.height)
+        return scaled.cropped(to: cropRect)
     }
 }

@@ -185,9 +185,14 @@ final class CameraManager: NSObject, ObservableObject {
         }
 
         let isFront = cameraPosition == .front
-        let connection = videoOutput.connection(with: .video)
-        connection?.videoOrientation = videoOrientation
-        connection?.isVideoMirrored = isFront
+        let videoConnection = videoOutput.connection(with: .video)
+        videoConnection?.videoOrientation = videoOrientation
+        videoConnection?.isVideoMirrored = isFront
+
+        // 同步设置拍照输出的方向，否则照片 EXIF 方向错误
+        let photoConnection = photoOutput.connection(with: .video)
+        photoConnection?.videoOrientation = videoOrientation
+        photoConnection?.isVideoMirrored = isFront
 
         previewOrientation = Self.cgOrientation(videoOrientation: videoOrientation,
                                                 mirrored: isFront)

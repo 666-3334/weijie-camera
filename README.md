@@ -34,7 +34,7 @@ PhotoStyleCamera/
 
 1. 新建 iOS App 工程，Product Name 用 `PhotoStyleCamera`，Interface 选 **SwiftUI**，Language **Swift**。
 2. 删除模板自带的 `ContentView.swift`（或保留不用），把本目录所有 `.swift` 文件按目录结构拖入工程（勾选 Copy if needed）。
-3. 部署目标设为 **iOS 16.0**；在 Build Settings 里把 `SWIFT_VERSION` 设为 **5**（避免 Swift 6 严格并发报错）。
+3. 部署目标设为 **iOS 26.0**。
 4. 在 `Info.plist` 添加权限描述：
    - `NSCameraUsageDescription`（例如「用于拍摄并应用自定义摄影风格」）
    - `NSPhotoLibraryAddUsageDescription`（例如「用于将渲染后的照片保存到相册」）
